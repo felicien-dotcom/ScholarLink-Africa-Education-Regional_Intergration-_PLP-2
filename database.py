@@ -137,7 +137,7 @@ class Database:
             new_id = cursor.lastrowid
         except Exception as error:
             if self._is_duplicate_error(error):
-                self.conn.rollback()                 # undo the failed insert
+                self.conn.rollback()                 
                 raise ValueError("That scholarship (same name and provider) is already saved.")
             raise
         self.conn.commit()

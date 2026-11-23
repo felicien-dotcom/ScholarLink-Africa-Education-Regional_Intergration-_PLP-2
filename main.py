@@ -34,7 +34,7 @@ def authenticate_user(db, admin_password):
             password = helpers.ask_text("Enter password: ")
             if db.verify_student(username, password):
                 print(f"\nWelcome back, {username}!")
-                return False  # False = Student mode
+                return False  
             else:
                 print("Invalid username or password. Please try again.")
 
@@ -55,7 +55,7 @@ def authenticate_user(db, admin_password):
             password = helpers.ask_text("Enter admin password: ")
             if password == admin_password:
                 print("\nAdmin access granted.")
-                return True  # True = Admin mode
+                return True  
             else:
                 print("Incorrect admin password. Returning to login screen.")
 
