@@ -1,3 +1,14 @@
+"""database.py - everything that talks to the database.
+
+OWNER: Shekinah (Database Lead): the SQL database
+
+Two ways to run (same SQL tables, same methods):
+  1. Cloud: Aiven MySQL. Used when DATABASE_URL is set (in the .env file).
+  2. Local: SQLite file. Used when DATABASE_URL is missing, or when the cloud is unreachable.
+
+Three tables: scholarships, notifications, student_profiles.
+Only this file knows which database is used. The rest of the app does not change.
+"""
 import os
 import sqlite3
 import ssl
@@ -13,6 +24,7 @@ APP_FOLDER = os.path.dirname(os.path.abspath(__file__))
 
 
 def load_env_file():
+    """Read KEY=VALUE lines from the .env file (kept private, never uploaded to Git)."""
     path = os.path.join(APP_FOLDER, ".env")
     if not os.path.exists(path):
         return
@@ -25,15 +37,16 @@ def load_env_file():
 
 
 def connect_mysql(url):
-    import pymysql                                   
+    """Connect to MySQL (Aiven) using PyMySQL, a pure-Python driver. Aiven requires SSL."""
+    import pymysql                                   # imported here so SQLite users need nothing
     parts = urlparse(url)
     ca_file = os.environ.get("DB_CA_CERT", "")
     if ca_file:
         if not os.path.isabs(ca_file):
             ca_file = os.path.join(APP_FOLDER, ca_file)
-        ssl_options = {"ca": ca_file, "check_hostname": False}   
+        ssl_options = {"ca": ca_file, "check_hostname": False}   # encrypted AND certificate checked
     else:
-        ssl_options = {"check_hostname": False}                  
+        ssl_options = {"check_hostname": False}                  # encrypted, certificate not checked
     return pymysql.connect(
         host=parts.hostname, port=parts.port or 3306,
         user=unquote(parts.username or ""), password=unquote(parts.password or ""),
@@ -48,13 +61,13 @@ class Database:
         self.kind = "sqlite"
         self.notice = ""
         self.conn = None
-        if url and path != ":memory:":               
+        if url and path != ":memory:":               # tests use ":memory:" and never touch the cloud
             try:
                 self.conn = connect_mysql(url)
                 self.kind = "mysql"
-            except Exception as error:               
-                self.notice = (f"Could not reach the cloud database ({type(error).__name__}). "
-                               "Using the local SQLite file instead.")
+            except Exception as error:               # no internet, wrong password, service powered off...
+                self.notice = (f"Could not reach the cloud database: {type(error).__name__}: {error}\n"
+                               "Using the local SQLite file instead (this data is NOT shared with the team).")
         if self.conn is None:
             self.conn = sqlite3.connect(path)
 
@@ -64,7 +77,9 @@ class Database:
     def describe(self):
         return "Aiven MySQL (cloud)" if self.kind == "mysql" else "SQLite (local file)"
 
+    # ---------- small helpers that hide the differences between the two databases ----------
     def _execute(self, sql, params=()):
+        """Run one SQL statement. SQLite uses ? placeholders, MySQL uses %s."""
         if self.kind == "mysql":
             sql = sql.replace("?", "%s")
         cursor = self.conn.cursor()
@@ -75,8 +90,9 @@ class Database:
         if self.kind == "sqlite":
             return isinstance(error, sqlite3.IntegrityError)
         import pymysql
-        return isinstance(error, pymysql.err.IntegrityError)   
+        return isinstance(error, pymysql.err.IntegrityError)    # MySQL error 1062 = duplicate entry
 
+    # ---------- setup ----------
     def create_tables(self):
         pk = "INT AUTO_INCREMENT PRIMARY KEY" if self.kind == "mysql" else "INTEGER PRIMARY KEY AUTOINCREMENT"
         statements = [
@@ -112,10 +128,12 @@ class Database:
             self._execute(statement)
         self.conn.commit()
 
+    # ---------- scholarships ----------
     def count_scholarships(self):
         return self._execute("SELECT COUNT(*) FROM scholarships").fetchone()[0]
 
     def add_scholarship(self, s):
+        """Save a Scholarship. Raises ValueError if the same name+provider already exists."""
         sql = ("INSERT INTO scholarships (name, provider, country, level, field, "
                "eligibility, deadline, link, date_checked) VALUES (?,?,?,?,?,?,?,?,?)")
         params = (s.name, s.provider, s.country, s.level, s.field, s.eligibility,
@@ -125,7 +143,7 @@ class Database:
             new_id = cursor.lastrowid
         except Exception as error:
             if self._is_duplicate_error(error):
-                self.conn.rollback()                
+                self.conn.rollback()                 # undo the failed insert
                 raise ValueError("That scholarship (same name and provider) is already saved.")
             raise
         self.conn.commit()
@@ -133,6 +151,7 @@ class Database:
         return new_id
 
     def search_by_country(self, country):
+        """Scholarships open to this country, plus the ones open to All Africa."""
         rows = self._execute(
             f"SELECT {SCHOLARSHIP_COLUMNS} FROM scholarships "
             "WHERE LOWER(country) IN (?, 'all africa') ORDER BY deadline",
@@ -159,6 +178,7 @@ class Database:
         return [Scholarship.from_row(r) for r in rows]
 
     def delete_scholarship(self, scholarship_id):
+        """Delete one scholarship by ID. Returns True if a row was deleted."""
         cursor = self._execute("DELETE FROM scholarships WHERE id = ?", (scholarship_id,))
         self.conn.commit()
         return cursor.rowcount > 0
@@ -167,7 +187,9 @@ class Database:
         self._execute("DELETE FROM scholarships")
         self.conn.commit()
 
+    # ---------- notifications ----------
     def add_notification(self, message, kind):
+        """Save a notification unless the exact same one already exists."""
         exists = self._execute(
             "SELECT 1 FROM notifications WHERE message = ? AND kind = ?",
             (message, kind)).fetchone()
@@ -180,6 +202,7 @@ class Database:
         return True
 
     def create_deadline_reminders(self, days=7):
+        """Reminder: a scholarship closes within `days` days. Runs when the app starts."""
         created = 0
         for s in self.closing_within(days):
             left = s.days_left()
@@ -203,6 +226,15 @@ class Database:
         self._execute("UPDATE notifications SET is_read = 1")
         self.conn.commit()
 
+    # ---------- information for check_database.py ----------
+    def table_counts(self):
+        """Return {table name: number of rows} for the 3 tables."""
+        counts = {}
+        for table in ("scholarships", "notifications", "student_profiles"):
+            counts[table] = self._execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        return counts
+
+    # ---------- student profile ----------
     def save_profile(self, profile):
         self._execute(
             "INSERT INTO student_profiles (home_country, level, field, date_saved) VALUES (?,?,?,?)",
