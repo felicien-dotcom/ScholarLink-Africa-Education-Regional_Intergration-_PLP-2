@@ -1,14 +1,3 @@
-"""database.py - everything that talks to the database.
-
-OWNER: Shekinah (Database Lead): the SQL database
-
-Two ways to run (same SQL tables, same methods):
-  1. Cloud: Aiven MySQL. Used when DATABASE_URL is set (in the .env file).
-  2. Local: SQLite file. Used when DATABASE_URL is missing, or when the cloud is unreachable.
-
-Three tables: scholarships, notifications, student_profiles.
-Only this file knows which database is used. The rest of the app does not change.
-"""
 import os
 import sqlite3
 import ssl
@@ -38,15 +27,15 @@ def load_env_file():
 
 def connect_mysql(url):
     """Connect to MySQL (Aiven) using PyMySQL, a pure-Python driver. Aiven requires SSL."""
-    import pymysql                                   # imported here so SQLite users need nothing
+    import pymysql                                 
     parts = urlparse(url)
     ca_file = os.environ.get("DB_CA_CERT", "")
     if ca_file:
         if not os.path.isabs(ca_file):
             ca_file = os.path.join(APP_FOLDER, ca_file)
-        ssl_options = {"ca": ca_file, "check_hostname": False}   # encrypted AND certificate checked
+        ssl_options = {"ca": ca_file, "check_hostname": False}   
     else:
-        ssl_options = {"check_hostname": False}                  # encrypted, certificate not checked
+        ssl_options = {"check_hostname": False}                  
     return pymysql.connect(
         host=parts.hostname, port=parts.port or 3306,
         user=unquote(parts.username or ""), password=unquote(parts.password or ""),
@@ -61,11 +50,11 @@ class Database:
         self.kind = "sqlite"
         self.notice = ""
         self.conn = None
-        if url and path != ":memory:":               # tests use ":memory:" and never touch the cloud
+        if url and path != ":memory:":               
             try:
                 self.conn = connect_mysql(url)
                 self.kind = "mysql"
-            except Exception as error:               # no internet, wrong password, service powered off...
+            except Exception as error:               
                 self.notice = (f"Could not reach the cloud database: {type(error).__name__}: {error}\n"
                                "Using the local SQLite file instead (this data is NOT shared with the team).")
         if self.conn is None:
@@ -77,7 +66,6 @@ class Database:
     def describe(self):
         return "Aiven MySQL (cloud)" if self.kind == "mysql" else "SQLite (local file)"
 
-    # ---------- small helpers that hide the differences between the two databases ----------
     def _execute(self, sql, params=()):
         """Run one SQL statement. SQLite uses ? placeholders, MySQL uses %s."""
         if self.kind == "mysql":
@@ -90,9 +78,8 @@ class Database:
         if self.kind == "sqlite":
             return isinstance(error, sqlite3.IntegrityError)
         import pymysql
-        return isinstance(error, pymysql.err.IntegrityError)    # MySQL error 1062 = duplicate entry
+        return isinstance(error, pymysql.err.IntegrityError)    
 
-    # ---------- setup ----------
     def create_tables(self):
         pk = "INT AUTO_INCREMENT PRIMARY KEY" if self.kind == "mysql" else "INTEGER PRIMARY KEY AUTOINCREMENT"
         statements = [
@@ -128,7 +115,6 @@ class Database:
             self._execute(statement)
         self.conn.commit()
 
-    # ---------- scholarships ----------
     def count_scholarships(self):
         return self._execute("SELECT COUNT(*) FROM scholarships").fetchone()[0]
 
@@ -187,7 +173,6 @@ class Database:
         self._execute("DELETE FROM scholarships")
         self.conn.commit()
 
-    # ---------- notifications ----------
     def add_notification(self, message, kind):
         """Save a notification unless the exact same one already exists."""
         exists = self._execute(
@@ -226,7 +211,6 @@ class Database:
         self._execute("UPDATE notifications SET is_read = 1")
         self.conn.commit()
 
-    # ---------- information for check_database.py ----------
     def table_counts(self):
         """Return {table name: number of rows} for the 3 tables."""
         counts = {}
@@ -234,7 +218,6 @@ class Database:
             counts[table] = self._execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         return counts
 
-    # ---------- student profile ----------
     def save_profile(self, profile):
         self._execute(
             "INSERT INTO student_profiles (home_country, level, field, date_saved) VALUES (?,?,?,?)",
