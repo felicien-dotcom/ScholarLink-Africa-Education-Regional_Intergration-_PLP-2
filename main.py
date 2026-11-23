@@ -1,3 +1,10 @@
+"""ScholarLink Africa - a free, terminal-based scholarship finder.
+
+OWNER: Felicien (Team Lead). Starts the app, shows the menu and runs the menu loop.
+
+Run:  python main.py        (Windows: python main.py or py main.py)
+Menu loop (while), if/else, exceptions, classes, SQL database (Aiven MySQL or local SQLite).
+"""
 import os
 
 import features_admin
@@ -6,6 +13,7 @@ import helpers
 from database import Database
 from sample_data import sample_scholarships
 
+# The local SQLite file is used when no cloud database is set up (or when the cloud is unreachable).
 DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scholarlink.db")
 
 
@@ -25,21 +33,25 @@ def show_menu(unread):
 
 
 def main():
+    # 1. Open the database (cloud MySQL or local SQLite) and make sure the tables exist
     db = Database(DB_FILE)
     if db.notice:
-        print(db.notice)                            
+        print(db.notice)                             # e.g. "Could not reach the cloud database..."
     print(f"Database: {db.describe()}")
     db.create_tables()
 
+    # 2. First run only: load SAMPLE scholarships so the demo is not empty
     if db.count_scholarships() == 0:
         for s in sample_scholarships():
             db.add_scholarship(s)
         print("(First run: loaded SAMPLE scholarships. Use import_data.py to load real ones.)")
 
+    # 3. Create reminders for scholarships closing within 7 days
     new_reminders = db.create_deadline_reminders(days=7)
     if new_reminders:
         print(f"You have {new_reminders} new deadline reminder(s). See option 5.")
 
+    # 4. A dictionary links each menu number to the feature function that runs it
     actions = {
         1: features_search.search_by_country,
         2: features_search.check_eligibility,
@@ -49,6 +61,7 @@ def main():
         6: features_admin.closing_soon,
     }
 
+    # 5. The menu loop: show the menu, read a number, run the feature, repeat until 0
     try:
         while True:
             show_menu(db.count_unread())
@@ -57,10 +70,10 @@ def main():
             if choice == 0:
                 break
             actions[choice](db)
-    except (EOFError, KeyboardInterrupt):            
+    except (EOFError, KeyboardInterrupt):            # Ctrl+C / Ctrl+D: leave cleanly
         print()
     finally:
-        db.close()                                  
+        db.close()                                   # always close the database
     print("Thank you for using ScholarLink Africa. Goodbye!")
 
 
