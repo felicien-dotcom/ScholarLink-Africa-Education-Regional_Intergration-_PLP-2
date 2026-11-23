@@ -57,3 +57,36 @@ def closing_soon(db):
     else:
         show_table(results)
     print("Returning to the Main Menu...")
+
+
+def delete_scholarship(db):
+    """Prompt admin for a scholarship ID and delete it from the database."""
+    print("\n- 7. DELETE A SCHOLARSHIP (admin) -")
+    scholarship_id = ask_number(
+        "Enter the ID of the scholarship to delete (or 0 to cancel): ",
+        0,
+        999999,
+        "Please enter a valid numeric ID."
+    )
+    if scholarship_id == 0:
+        print("Deletion cancelled.")
+        print("Returning to the Main Menu...")
+        return
+
+    scholarship = db.get_by_id(scholarship_id)
+    if scholarship is None:
+        print(f"No scholarship found with ID {scholarship_id}.")
+        print("Returning to the Main Menu...")
+        return
+
+    print(f"Found: '{scholarship.name}' ({scholarship.provider})")
+    if ask_yes_no("Are you sure you want to permanently delete this scholarship? (y/n): "):
+        if db.delete_scholarship(scholarship_id):
+            print(f"Scholarship ID {scholarship_id} has been deleted.")
+        else:
+            print(f"Could not delete scholarship ID {scholarship_id}.")
+    else:
+        print("Deletion cancelled.")
+    print("Returning to the Main Menu...")
+
+
