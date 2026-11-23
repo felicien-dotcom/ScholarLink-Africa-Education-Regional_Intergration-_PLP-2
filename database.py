@@ -110,6 +110,14 @@ class Database:
                 field        VARCHAR(100) NOT NULL,
                 date_saved   VARCHAR(10)  NOT NULL
             )""",
+
+            f"""CREATE TABLE IF NOT EXISTS users (
+                id           {pk},
+                username     VARCHAR(100) NOT NULL UNIQUE,
+                password     VARCHAR(255) NOT NULL,
+                date_created VARCHAR(10)  NOT NULL
+            )""",
+
         ]
         for statement in statements:
             self._execute(statement)
@@ -129,7 +137,7 @@ class Database:
             new_id = cursor.lastrowid
         except Exception as error:
             if self._is_duplicate_error(error):
-                self.conn.rollback()                 # undo the failed insert
+                self.conn.rollback()                 
                 raise ValueError("That scholarship (same name and provider) is already saved.")
             raise
         self.conn.commit()
@@ -212,9 +220,9 @@ class Database:
         self.conn.commit()
 
     def table_counts(self):
-        """Return {table name: number of rows} for the 3 tables."""
+        """Return {table name: number of rows} for all tables."""
         counts = {}
-        for table in ("scholarships", "notifications", "student_profiles"):
+        for table in ("scholarships", "notifications", "student_profiles", "users"):
             counts[table] = self._execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         return counts
 
@@ -223,3 +231,26 @@ class Database:
             "INSERT INTO student_profiles (home_country, level, field, date_saved) VALUES (?,?,?,?)",
             (profile.home_country, profile.level, profile.field, date.today().isoformat()))
         self.conn.commit()
+
+
+    def register_student(self, username, password):
+        """Create a student account. Raises ValueError if the username already exists."""
+        sql = "INSERT INTO users (username, password, date_created) VALUES (?, ?, ?)"
+        params = (username.strip(), password, date.today().isoformat())
+        try:
+            self._execute(sql, params)
+        except Exception as error:
+            if self._is_duplicate_error(error):
+                self.conn.rollback()
+                raise ValueError("That username is already taken.")
+            raise
+        self.conn.commit()
+
+    def verify_student(self, username, password):
+        """Return True if username and password match a registered student."""
+        row = self._execute(
+            "SELECT id FROM users WHERE LOWER(username) = ? AND password = ?",
+            (username.strip().lower(), password)
+        ).fetchone()
+        return row is not None
+
